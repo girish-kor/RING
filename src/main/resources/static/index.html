@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat and Video Call Application</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+    <div class="location-section">
+        <h2>Chat and Video Call Application</h2>
+        <label for="location">Select Location:</label>
+        <select id="location">
+            <option value="ASIA">Asia</option>
+            <option value="AFRICA">Africa</option>
+            <option value="AUSTRALIA">Australia</option>
+            <option value="EUROPE">Europe</option>
+            <option value="NORTH_AMERICA">North America</option>
+            <option value="SOUTH_AMERICA">South America</option>
+        </select>
+        <button onclick="startSession()" class="start-session">Start Session</button>
+    </div>
+
+    <div id="sessionInfo" class="session-info">
+        <p>User ID: <span id="userId"></span></p>
+        <p>Partner ID: <span id="partnerId"></span></p>
+        <p>Session ID: <span id="sessionId"></span></p>
+    </div>
+
+    <div id="chatSection" class="chat-section">
+        <h3>Chat</h3>
+        <div id="messages"></div>
+        <div class="chat-input-container">
+            <input type="text" id="chatInput" placeholder="Type your message...">
+            <button onclick="sendChatMessage()" class="send-message">Send</button>
+        </div>
+    </div>
+
+    <div id="videoSection" class="video-section">
+        <h3>Video Call</h3>
+        <div class="video-container">
+            <video id="localVideo" autoplay playsinline muted></video>
+            <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+        <div class="video-controls">
+            <button onclick="startVideoCall()" class="start-video">Start Video Call</button>
+            <button onclick="endVideoCall()" class="end-video">End Video Call</button>
+        </div>
+    </div>
+
+    <div class="end-session-container">
+        <button onclick="endSession()" id="endSessionBtn" class="end-session">End Session</button>
+    </div>
+</div>
+
+<script>
+    // Configure the backend base URL here
+    const BASE_URL = 'http://localhost:8080'; // Change to your backend URL (e.g., http://localhost:8081)
+
+    let stompClient = null;
+    let userId = null;
+    let partnerId = null;
+    let sessionId = null;
+    let peerConnection = null;
+    const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    async function startSession() {
+        const location = document.getElementById('location').value;
+
+        // Create User
+        try {
+            const userResponse = await fetch(`${BASE_URL}/api/users?location=${location}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            if (!userResponse.ok) {
+                const errorText = await userResponse.text();
+                console.error('User creation failed:', userResponse.status, errorText);
+                alert(`Failed to create user: ${errorText || 'Unknown error'} (Status: ${userResponse.status})`);
+                return;
+            }
+            const user = await userResponse.json();
+            userId = user.id;
+            document.getElementById('userId').textContent = userId;
+            console.log('User created:', userId);
+
+            // Create Session
+            const sessionResponse = await fetch(`${BASE_URL}/api/sessions?userId=${userId}&location=${location}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            if (!sessionResponse.ok) {
+                const errorText = await sessionResponse.text();
+                console.error('Session creation failed:', sessionResponse.status, errorText);
+                alert(`Failed to create session: ${errorText || 'Unknown error'} (Status: ${sessionResponse.status})`);
+                return;
+            }
+            const session = await sessionResponse.json();
+            sessionId = session.id;
+            partnerId = session.userTwoId || 'Waiting for partner...';
+            document.getElementById('sessionId').textContent = sessionId;
+            document.getElementById('partnerId').textContent = partnerId;
+            console.log('Session created:', sessionId, 'Partner:', partnerId);
+
+            document.getElementById('sessionInfo').classList.add('visible');
+            document.getElementById('chatSection').classList.add('visible');
+            document.getElementById('videoSection').classList.add('visible');
+            document.getElementById('endSessionBtn').classList.add('visible');
+
+            connectWebSocket();
+        } catch (error) {
+            console.error('Error in startSession:', error);
+            alert('Unexpected error during session setup: ' + error.message);
+        }
+    }
+
+    function connectWebSocket() {
+        const socket = new SockJS(`${BASE_URL}/ws`);
+        stompClient = Stomp.over(socket);
+        stompClient.connect({}, () => {
+            console.log('WebSocket connected');
+            stompClient.subscribe(`/user/${userId}/queue/messages`, (message) => {
+                console.log('Received message:', message.body);
+                const chatMessage = JSON.parse(message.body);
+                handleMessage(chatMessage);
+            });
+
+            // Send join message
+            console.log('Sending join message');
+            stompClient.send('/app/chat.join', {}, JSON.stringify({
+                sessionId: sessionId,
+                senderId: userId,
+                receiverId: partnerId,
+                type: 'JOIN'
+            }));
+        }, (error) => {
+            console.error('WebSocket connection failed:', error);
+            alert('Failed to connect to WebSocket: ' + error);
+        });
+    }
+
+    function handleMessage(message) {
+        const messagesDiv = document.getElementById('messages');
+        console.log('Handling message type:', message.type);
+        switch (message.type) {
+            case 'JOIN':
+                messagesDiv.innerHTML += `<p>${message.senderId} joined the session</p>`;
+                if (message.senderId !== userId && partnerId === 'Waiting for partner...') {
+                    partnerId = message.senderId;
+                    document.getElementById('partnerId').textContent = partnerId;
+                }
+                break;
+            case 'CHAT':
+                messagesDiv.innerHTML += `<p>${message.senderId}: ${message.content}</p>`;
+                break;
+            case 'WEBRTC':
+                handleWebRTCSignal(message);
+                break;
+            case 'LEAVE':
+                messagesDiv.innerHTML += `<p>${message.senderId} left the session</p>`;
+                endSessionLocally();
+                break;
+            case 'ERROR':
+                alert(`Error: ${message.content}`);
+                break;
+        }
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function sendChatMessage() {
+        const content = document.getElementById('chatInput').value;
+        if (!content || !stompClient || !partnerId) return;
+
+        // Filter text
+        fetch(`${BASE_URL}/api/filter/text/${sessionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: content })
+        }).then(response => {
+            if (response.ok) {
+                console.log('Sending chat message:', content);
+                stompClient.send('/app/chat.send', {}, JSON.stringify({
+                    sessionId: sessionId,
+                    senderId: userId,
+                    receiverId: partnerId,
+                    content: content,
+                    type: 'CHAT'
+                }));
+                document.getElementById('chatInput').value = '';
+            } else {
+                response.text().then(text => {
+                    console.error('Text filtering failed:', text);
+                    alert('Inappropriate content detected: ' + text);
+                });
+            }
+        }).catch(error => {
+            console.error('Error filtering text:', error);
+            alert('Error filtering message: ' + error.message);
+        });
+    }
+
+    async function startVideoCall() {
+        try {
+            peerConnection = new RTCPeerConnection(servers);
+            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            document.getElementById('localVideo').srcObject = localStream;
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.ontrack = event => {
+                document.getElementById('remoteVideo').srcObject = event.streams[0];
+            };
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    console.log('Sending ICE candidate');
+                    stompClient.send('/app/chat.webrtc', {}, JSON.stringify({
+                        sessionId: sessionId,
+                        senderId: userId,
+                        receiverId: partnerId,
+                        content: JSON.stringify({ type: 'candidate', candidate: event.candidate }),
+                        type: 'WEBRTC'
+                    }));
+                }
+            };
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            console.log('Sending WebRTC offer');
+            stompClient.send('/app/chat.webrtc', {}, JSON.stringify({
+                sessionId: sessionId,
+                senderId: userId,
+                receiverId: partnerId,
+                content: JSON.stringify({ type: 'offer', sdp: offer }),
+                type: 'WEBRTC'
+            }));
+        } catch (error) {
+            console.error('Error starting video call:', error);
+            alert('Failed to start video call: ' + error.message);
+        }
+    }
+
+    async function handleWebRTCSignal(message) {
+        try {
+            if (!peerConnection) {
+                peerConnection = new RTCPeerConnection(servers);
+                const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('localVideo').srcObject = localStream;
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                peerConnection.ontrack = event => {
+                    document.getElementById('remoteVideo').srcObject = event.streams[0];
+                };
+
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate) {
+                        console.log('Sending ICE candidate');
+                        stompClient.send('/app/chat.webrtc', {}, JSON.stringify({
+                            sessionId: sessionId,
+                            senderId: userId,
+                            receiverId: partnerId,
+                            content: JSON.stringify({ type: 'candidate', candidate: event.candidate }),
+                            type: 'WEBRTC'
+                        }));
+                    }
+                };
+            }
+
+            const signal = JSON.parse(message.content);
+            if (signal.type === 'offer') {
+                console.log('Received WebRTC offer');
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                console.log('Sending WebRTC answer');
+                stompClient.send('/app/chat.webrtc', {}, JSON.stringify({
+                    sessionId: sessionId,
+                    senderId: userId,
+                    receiverId: partnerId,
+                    content: JSON.stringify({ type: 'answer', sdp: answer }),
+                    type: 'WEBRTC'
+                }));
+            } else if (signal.type === 'answer') {
+                console.log('Received WebRTC answer');
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+            } else if (signal.type === 'candidate') {
+                console.log('Received ICE candidate');
+                await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            }
+        } catch (error) {
+            console.error('Error handling WebRTC signal:', error);
+            alert('Error in WebRTC signaling: ' + error.message);
+        }
+    }
+
+    function endVideoCall() {
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
+            console.log('Video call ended');
+        }
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        if (localVideo.srcObject) {
+            localVideo.srcObject.getTracks().forEach(track => track.stop());
+            localVideo.srcObject = null;
+        }
+        remoteVideo.srcObject = null;
+    }
+
+    function endSession() {
+        fetch(`${BASE_URL}/api/sessions/${sessionId}/end`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' }
+        }).then(response => {
+            if (response.ok) {
+                console.log('Session ended');
+                stompClient.send('/app/chat.leave', {}, JSON.stringify({
+                    sessionId: sessionId,
+                    senderId: userId,
+                    receiverId: partnerId,
+                    type: 'LEAVE'
+                }));
+                endSessionLocally();
+            } else {
+                response.text().then(text => {
+                    console.error('Session end failed:', text);
+                    alert('Failed to end session: ' + text);
+                });
+            }
+        }).catch(error => {
+            console.error('Error ending session:', error);
+            alert('Error ending session: ' + error.message);
+        });
+    }
+
+    function endSessionLocally() {
+        if (stompClient) {
+            stompClient.disconnect();
+            console.log('WebSocket disconnected');
+        }
+        endVideoCall();
+        document.getElementById('sessionInfo').classList.remove('visible');
+        document.getElementById('chatSection').classList.remove('visible');
+        document.getElementById('videoSection').classList.remove('visible');
+        document.getElementById('endSessionBtn').classList.remove('visible');
+        document.getElementById('messages').innerHTML = '';
+        userId = null;
+        partnerId = null;
+        sessionId = null;
+    }
+</script>
+</body>
+</html>
