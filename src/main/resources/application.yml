@@ -1,7 +1,7 @@
 spring:
   data:
     mongodb:
-      uri: ${SPRING_DATA_MONGODB_URI:mongodb://localhost:27017/ring_db}
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb:mongodb+srv://root:Girish%40123@java.k7m6yw4.mongodb.net/sample_mflix?retryWrites=true&w=majority&appName=JAVA}
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
