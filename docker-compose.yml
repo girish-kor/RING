@@ -8,7 +8,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/ring_db
+      - SPRING_DATA_MONGODB_URI=mongodb+srv://root:Girish%40123@java.k7m6yw4.mongodb.net/sample_mflix?retryWrites=true&w=majority&appName=JAVA
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - GOOGLE_VISION_API_KEY=${GOOGLE_VISION_API_KEY:-5904f39a456b3d0de043c223a7bd53d1beff3964}
