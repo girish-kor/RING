@@ -26,7 +26,7 @@ COPY src/main/resources/static/style.css ./static/style.css
 EXPOSE 8080
 
 # Set environment variables (can be overridden)
-ENV SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/ring
+ENV SPRING_DATA_MONGODB_URI=mongodb+srv://root:Girish%40123@java.k7m6yw4.mongodb.net/sample_mflix?retryWrites=true&w=majority&appName=JAVA
 ENV JAVA_OPTS="-Xms256m -Xmx512m"
 
 # Run the application
