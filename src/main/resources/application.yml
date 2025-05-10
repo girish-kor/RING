@@ -1,7 +1,7 @@
 spring:
   data:
     mongodb:
-      uri: ${SPRING_DATA_MONGODB_URI:mongodb:mongodb+srv://root:Girish%40123@java.k7m6yw4.mongodb.net/sample_mflix?retryWrites=true&w=majority&appName=JAVA}
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb+srv://root:Girish%40123@java.k7m6yw4.mongodb.net/sample_mflix?retryWrites=true&w=majority&appName=JAVA}
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
@@ -21,9 +21,9 @@ google:
 
 ring:
   session:
-    timeout: ${SESSION_TIMEOUT:3600}  # Session timeout in seconds (1 hour)
-    reconnect-timeout: ${RECONNECT_TIMEOUT:30}  # Reconnect timeout in seconds
+    timeout: ${SESSION_TIMEOUT:3600} # in seconds (1 hour)
+    reconnect-timeout: ${RECONNECT_TIMEOUT:30} # in seconds
   filter:
     threshold:
-      nudity: ${FILTER_NUDITY_THRESHOLD:0.7}  # Threshold for nudity detection (0.0 to 1.0)
-      violence: ${FILTER_VIOLENCE_THRESHOLD:0.8}  # Threshold for violence detection (0.0 to 1.0)
+      nudity: ${FILTER_NUDITY_THRESHOLD:0.7}
+      violence: ${FILTER_VIOLENCE_THRESHOLD:0.8}
